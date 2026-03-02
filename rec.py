@@ -26,6 +26,11 @@ class recorder:
 
         self.__suspend_recording = False
 
+        stack = inspect.stack()
+        if len(stack) < 2:
+            raise ValueError("Stack too small.")
+        self.__frame = stack[1] # frame of caller
+
     __suspend = False
 
     @classmethod
@@ -65,15 +70,15 @@ class recorder:
             stack = inspect.stack()
             if len(stack) < 2:
                 raise ValueError("Stack too small.")
-            frame = stack[1] # frame of caller
+            frame_context = stack[1] # frame of caller
+            frame = self.__frame
             context = None
             if getcontext is not None and isinstance(getcontext , int):
-                with open(frame.filename , "r") as f:
+                with open(frame_context.filename , "r") as f:
                     lines = f.readlines()
-                    context = [(i + 1 if i + 1 != frame.lineno else -i - 1 , lines[i]) for i in range(len(lines))]
-                    #context = context[min(frame.lineno - getcontext , 0) : max(frame.lineno + getcontext , len(context) - 1)]
-                    mn = max(frame.lineno - 1 - getcontext , 0)
-                    mx = min(frame.lineno - 1 + getcontext + 1 , len(context))
+                    context = [(i + 1 if i + 1 != frame_context.lineno else -i - 1 , lines[i]) for i in range(len(lines))]
+                    mn = max(frame_context.lineno - 1 - getcontext , 0)
+                    mx = min(frame_context.lineno - 1 + getcontext + 1 , len(context))
                     context = context[mn : mx]
                     context = [(i , str(abs(i)).ljust(4) + "|" + l) for i , l in context]
 
