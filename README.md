@@ -1,10 +1,13 @@
 # `check_common.py`
 
-Running:
+Analize fortran source files (fixed form only) for changes of variables in common blocks.
+This might be usefull, for example, when adding OpenMP directives to a program.
+
+Running
 ```shell
 $ python check_common.py -h
 ```
-prints help:
+prints help information:
 ```
 usage: check_common.py [-h] [--tags TAGS] [--file FILE]
 
@@ -19,4 +22,11 @@ options:
 ```
 
 Requires:
-- `regex` python library for recursive regular expressions
+- `regex` python library for recursive regular expressions,
+- `ctags` program to generate tags for vim / neovim.
+
+# `rec.py`
+
+Simple module for recording and visualizing the state of python variables in the execution of
+some code or algorithm. This might be usefull for teaching purpouses or debugging. Example usage is
+in the `__main__` block of `rec.py`. More information is available in the comments.
