@@ -1,20 +1,32 @@
 import copy
 import sys
+import os
 import curses
 
 import inspect
 
 class recorder:
-    def __init__(self , *variable_list , visualization_functions = dict()):
+    def __init__(self , visualization_functions):
         """
         Arguments:
-            variable_list (list): List in the form ["<variable name>" ...].
             visualization_functions (dict): Dictionary in the form {("<variable name>" ...) : <function to visualize variable>}.
         """
         # todo see : https://www.geeksforgeeks.org/python/get-variable-name-as-string-in-python/
+        if not isinstance(visualization_functions , dict):
+            raise ValueError("Expecting dict.")
+        
+        variable_list = set()
+        for k in visualization_functions:
+            if isinstance(k , tuple):
+                for kv in k:
+                    variable_list.add(kv)
+            else:
+                variable_list.add(k)
+
         for vn in variable_list:
             if not isinstance(vn , str):
                 raise ValueError("Expecting a string.")
+
         self.__variable_list = list(variable_list)
         self.__visualization_functions = visualization_functions
         self.__record = []
@@ -59,10 +71,11 @@ class recorder:
         """
         self.__suspend_recording = True
 
-    def record(self , step = "" , getcontext = None):
+    def record(self , step = "" , getcontext = 5):
         """
         Arguments:
-            variables (dict): Dictionary in the form {"<variable name>" : <variable value>}.
+            step (str): Optional, title of step.
+            getcontext (None or int): Optional, number of lines of code before and after record(...) for context. Default 5. 
         Raises:
             ValueError
         """
@@ -71,23 +84,25 @@ class recorder:
             if len(stack) < 2:
                 raise ValueError("Stack too small.")
             frame_context = stack[1] # frame of caller
-            frame = self.__frame
             context = None
+            file = None
             if getcontext is not None and isinstance(getcontext , int):
-                with open(frame_context.filename , "r") as f:
+                file = frame_context.filename
+                with open(file , "r") as f:
                     lines = f.readlines()
                     context = [(i + 1 if i + 1 != frame_context.lineno else -i - 1 , lines[i]) for i in range(len(lines))]
                     mn = max(frame_context.lineno - 1 - getcontext , 0)
                     mx = min(frame_context.lineno - 1 + getcontext + 1 , len(context))
                     context = context[mn : mx]
-                    context = [(i , str(abs(i)).ljust(4) + "|" + l) for i , l in context]
+                    context = [(i , str(abs(i)).ljust(5) + "|" + l) for i , l in context]
 
+            frame = self.__frame
             glb = frame.frame.f_globals
 
             for vn in self.__variable_list:
                 if not vn in glb:
                     raise ValueError("Variable " + vn + " not in f_globals of calling frame.")
-            self.__record.append((step , {vn : copy.deepcopy(glb[vn]) for vn in self.__variable_list} , context))
+            self.__record.append((step , {vn : copy.deepcopy(glb[vn]) for vn in self.__variable_list} , context , os.path.basename(str(file))))
 
     def __len__(self):
         return len(self.__record)
@@ -97,7 +112,7 @@ class recorder:
         return self
 
     def get_vis_frame(self , index):
-        step , snapshot , context = self.__record[index]
+        step , snapshot , context , file = self.__record[index]
         vissnapshot = dict()
         for k in self.__visualization_functions:
             kk = k
@@ -113,7 +128,7 @@ class recorder:
         #if context is not None:
         #    context = "".join(context)
 
-        return (step , vissnapshot , context)
+        return (step , vissnapshot , context , file)
 
     def __next__(self):
         if self.__record_number < len(self.__record):
@@ -153,7 +168,6 @@ class recorder:
             curses.curs_set(0)
             if len(self.__record) > 0:
                 while True:
-                    th , tw = w.getmaxyx()
                     w.clear()
                     vis_frame = self.get_vis_frame(index)
                     recorder.show_curses(w , vis_frame , 
@@ -181,7 +195,7 @@ class recorder:
 
     @classmethod
     def show(cls , visframe , variables = None , tw = 80):
-        step , vissnapshot , context = visframe
+        step , vissnapshot , context , file = visframe
         #if context is not None:
         #    context = "".join([c for l , c in context])
         res = []
@@ -211,8 +225,18 @@ class recorder:
             curses.init_pair(1, curses.COLOR_BLUE, curses.COLOR_BLACK)
             curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLACK)
             curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)
-        
-        step , vissnapshot , context = visframe
+      
+        # sauce : https://runebook.dev/en/docs/python/library/curses/curses.error#google_vignette
+        def addstr_safe(*args):
+            try:
+                window.addstr(*args)
+            except curses.error as e:
+                if "returned ERR" in str(e):
+                    pass
+                else:
+                    raise
+
+        step , vissnapshot , context , file = visframe
         res = []
         if show_title:
             if step != "":
@@ -221,9 +245,11 @@ class recorder:
             if progress is not None:
                 title = "(" + progress + ") " + title
             if curses.has_colors():
-                window.addstr(title , curses.color_pair(2) | curses.A_BOLD)
+                #window.addstr(title , curses.color_pair(2) | curses.A_BOLD)
+                addstr_safe(title , curses.color_pair(2) | curses.A_BOLD)
             else:
-                window.addstr(title)
+                #window.addstr(title)
+                addstr_safe(title)
 
         keys = list(vissnapshot.keys())
         if variables is not None:
@@ -236,21 +262,30 @@ class recorder:
             res.append("\n")
             vis = "".join(res)
             if curses.has_colors():
-                window.addstr(vis , curses.color_pair(3))
+                #window.addstr(vis , curses.color_pair(3))
+                addstr_safe(vis , curses.color_pair(3))
             else:
-                window.addstr(vis)
+                #window.addstr(vis)
+                addstr_safe(vis)
 
         if show_context:
-            window.addstr("\n")
+            #window.addstr("\n")
+            #window.addstr(file + " :" , curses.color_pair(2)|curses.A_BOLD)
+            #window.addstr("\n")
+            addstr_safe("\n")
+            addstr_safe(file + " :" , curses.color_pair(2)|curses.A_BOLD)
+            addstr_safe("\n")
             if context is not None:
                 for i in range(len(context)):
                     lnum , con = context[i]
                     if not show_record and "record" in con:
                         con = con[:6] + "\n"
                     if lnum < 0:
-                        window.addstr(con , curses.color_pair(2)|curses.A_BOLD)
+                        #window.addstr(con , curses.color_pair(2)|curses.A_BOLD)
+                        addstr_safe(con , curses.color_pair(2)|curses.A_BOLD)
                     else:
-                        window.addstr(con , curses.color_pair(3)|curses.A_DIM)
+                        #window.addstr(con , curses.color_pair(3)|curses.A_DIM)
+                        addstr_safe(con , curses.color_pair(3)|curses.A_DIM)
 
 
 if __name__ == "__main__":
@@ -278,7 +313,7 @@ if __name__ == "__main__":
     #    i : the iteration number 
     #    l : the list
     def vis_iteration_list(i , l):
-        return "iteration :" + str(i) + "\nlist :" + str(l)
+        return "iteration : " + str(i) + "\nlist : " + str(l)
 
     # Visualize boolean values:
     #    b : boolean value to visualize
@@ -295,33 +330,34 @@ if __name__ == "__main__":
     # Finally, start the recorder and run the bubble sort algorithm
     # -------------------------------------------------------------
 
-    # The first three arguments
-    #    "a" , "iteration" , "a_sorted"
-    # are the names of variables relavent to the sorting algorithm.
-    # The next keyword argument is a dictionary:
+    # The argument is a dictionary:
     #    {
     #       ("iteration" , "a") : vis_iteration_list , 
     #       "a_sorted" : vis_bool,
     #       "swaps" : vis_swaps}
-    # and specificied which visualization functions are used to 
+    # and specificies which visualization functions are used to 
     # visualize which variables of collections of variables. 
     # Pairs 
     #    (iteration , a)
     # will be visualized using the function 
     #    vis_iteration_list
-    # and the single boolean 
+    # the single boolean 
     #    a_sorted
     # will be visualized using
     #    vis_bool
     # finally the number of swaps in each iteration
     #    swaps
     # will be visualized using
-    #    vis_swaps
-    r = recorder("a" , "iteration" , "a_sorted" , "swaps", 
-                 visualization_functions = {
+    #    vis_swaps.
+    # The values of
+    #    iteration, a, a_sorted, swaps
+    # will be copied from the frame calling recorder.__init__. 
+    # This is the current context.
+    r = recorder({
                      ("iteration" , "a") : vis_iteration_list , 
                      "a_sorted" : vis_bool,
-                     "swaps" : vis_swaps})
+                     "swaps" : vis_swaps
+                     })
 
     # The algorithm is implemented withing the context of the recorder
     with r:
@@ -329,21 +365,22 @@ if __name__ == "__main__":
         #     step - the title of the procedure step
         #     getcontext - number of code lines before 
         #                  and after r.record(...) to show
-        r.record(step  = "INITIAL VALUES" , getcontext = 5)
+        r.record(step  = "INITIAL VALUES")
         while not a_sorted:
             swaps = 0
-            r.record(step  = "START OF ITERATION" , getcontext = 5)
+            r.record(step  = "START OF ITERATION")
             for i in range(len(a) - 1):
                 x = a[i]
                 if x > a[i + 1]:
                     a[i] = a[i + 1]
                     a[i + 1] = x
                     swaps += 1
-                    r.record(step = "SWAPPING" , getcontext = 5)
-            r.record(step  = "END OF ITERATION" , getcontext = 5)
+                    r.record(step = "SWAPPING")
+            r.record(step  = "END OF ITERATION")
             if swaps == 0:
                 a_sorted = True
-                r.record(step = "FINISHED" , getcontext = 5)
+                # In this final step we are not recording the code context:
+                r.record(step = "FINISHED" , getcontext = None)
 
 
     # Run the recording
