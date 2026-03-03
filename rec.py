@@ -6,10 +6,12 @@ import curses
 import inspect
 
 class recorder:
-    def __init__(self , visualization_functions):
+    def __init__(self , visualization_functions , search_locals_first = True , raise_error = True):
         """
         Arguments:
             visualization_functions (dict): Dictionary in the form {("<variable name>" ...) : <function to visualize variable>}.
+            search_locals_first (bool): Local variables are searched first, before global variables.
+            raise_error (bool): If true an error will be raised if variable not found.
         """
         # todo see : https://www.geeksforgeeks.org/python/get-variable-name-as-string-in-python/
         if not isinstance(visualization_functions , dict):
@@ -35,6 +37,9 @@ class recorder:
         self.__file_name = None
         self.__start_line = None
         #self.__end_line = None
+
+        self.__search_locals_first = search_locals_first
+        self.__raise_error = raise_error
 
         self.__suspend_recording = False
 
@@ -98,11 +103,22 @@ class recorder:
 
             frame = self.__frame
             glb = frame.frame.f_globals
+            lcl = frame.frame.f_locals
 
+            d = dict()
             for vn in self.__variable_list:
-                if not vn in glb:
+                if self.__search_locals_first:
+                    if vn in lcl:
+                        d[vn] = copy.deepcopy(lcl[vn])
+                        continue
+                if vn in glb:
+                    d[vn] = copy.deepcopy(glb[vn])
+                    continue
+                if self.__raise_error:
                     raise ValueError("Variable " + vn + " not in f_globals of calling frame.")
-            self.__record.append((step , {vn : copy.deepcopy(glb[vn]) for vn in self.__variable_list} , context , os.path.basename(str(file))))
+                else:
+                    d[vn] = None
+            self.__record.append((step , d , context , os.path.basename(str(file))))
 
     def __len__(self):
         return len(self.__record)
@@ -120,7 +136,7 @@ class recorder:
                 kk = (k ,)
             for v in kk:
                 if not v in snapshot:
-                    raise ValueError("Variable " + v + " not in snapshot.")
+                    raise ValueError("Variable " + v + " not in snapshot." + str(snapshot))
             args = [snapshot[v] for v in kk]
             vis = self.__visualization_functions[k](*args)
             vissnapshot[k] = vis
@@ -146,6 +162,9 @@ class recorder:
         frame = stack[1] # frame of caller  
         self.__file_name = frame.filename
         self.__start_line = frame.lineno
+        if len(stack) < 2:
+            raise ValueError("Stack too small.")
+        self.__frame = stack[1] # frame of caller
         #print("__enter__" , self.__file_name , self.__start_line)
         return self
 
