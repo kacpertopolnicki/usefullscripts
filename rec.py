@@ -48,6 +48,8 @@ class recorder:
             raise ValueError("Stack too small.")
         self.__frame = stack[1] # frame of caller
 
+        self.__finished = False
+
     __suspend = False
 
     @classmethod
@@ -76,7 +78,7 @@ class recorder:
         """
         self.__suspend_recording = True
 
-    def record(self , step = "" , getcontext = 5):
+    def record(self , step = "" , getcontext = 10):
         """
         Arguments:
             step (str): Optional, title of step.
@@ -84,7 +86,7 @@ class recorder:
         Raises:
             ValueError
         """
-        if not self.__suspend_recording and not recorder.__suspend:
+        if not self.__suspend_recording and not recorder.__suspend and not self.__finished: 
             stack = inspect.stack()
             if len(stack) < 2:
                 raise ValueError("Stack too small.")
@@ -176,9 +178,13 @@ class recorder:
         self.__file_name = frame.filename
         #self.__end_line = frame.lineno
         #print("__exit__" , self.__file_name , self.__end_line)
+        self.__finished = True
         return False
 
-    def play(self , variables = None):
+    def play(self , variables = None , title = None):
+        ttl = ""
+        if title is not None:
+            ttl = " of " + title.upper()
         def curses_main(w):
             index = 0
             show_context = True
@@ -194,7 +200,7 @@ class recorder:
                                          show_context = show_context , 
                                          show_title = show_title ,
                                          show_record = show_record ,
-                                         progress = str(index + 1) + "/" + str(len(self.__record)))
+                                         progress = str(index + 1) + "/" + str(len(self.__record)) + ttl)
                     k = w.getch()
                     if k == curses.KEY_UP:
                         index = (index + 1) % len(self.__record)
